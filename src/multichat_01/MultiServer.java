@@ -33,9 +33,6 @@ public class MultiServer {
 	Set<String> blackList = new HashSet<>();
 	Set<String> pWords = new HashSet<>();
 	
-	String sqlName = "";
-	String sqlMsg = "";
-		
 	public MultiServer() {
 		clientMap = new HashMap<String, PrintWriter>();
 		Collections.synchronizedMap(clientMap);
@@ -105,9 +102,6 @@ public class MultiServer {
 				System.out.println("예외:"+e);
 			}
 		}
-
-		sqlName = name;
-		sqlMsg = msg;
 	}
 
 	//귓속말 전송 : 발신자대화명, 메세지, 수신자대화명
@@ -145,9 +139,14 @@ public class MultiServer {
 		Socket socket;
 		PrintWriter out = null;
 		BufferedReader in = null;
+		
 		String url = "jdbc:oracle:thin:@localhost:1521:xe";
 		String id = "study";
 		String pass = "1234";
+		
+		String whsUser ="";
+		String blkUser ="";
+		
 		public MultiServerT(Socket socket) {
 			this.socket = socket;
 			try {
@@ -208,8 +207,6 @@ public class MultiServer {
 				
 				//두번째 메세지부터는 "대화내용"
 				while (in!=null) {
-					String msgContent = "";
-					
 					s = in.readLine();
 					if ( s == null )
 						break;
@@ -238,7 +235,8 @@ public class MultiServer {
 						result = psmt.executeUpdate();
 						//insert 쿼리문이므로 성공시 1, 실패시 0이 반환된다.
 						//System.out.println("[psmt]"+ result +"행 입력됨");
-					} finally {
+					}
+					finally {
 						if (psmt != null) {
 							psmt.close();
 						}
@@ -262,7 +260,7 @@ public class MultiServer {
 						2번 인덱스부터 끝까지는 대화내용이 되므로 아래와 같이
 						문자열 처리를 해야한다. 
 						*/
-//						String msgContent = "";
+						String msgContent = "";
 						for(int i=2 ; i<strArr.length ; i++) {
 							msgContent += strArr[i]+" ";
 						}
@@ -275,13 +273,36 @@ public class MultiServer {
 							작성한다. */
 							sendWhisperMsg(name, msgContent, strArr[1]);
 						}
+						else if(strArr[0].equals("/fixto")) {
+							whsUser = strArr[1];
+							out.println(whsUser + " 님에게 귓속말 고정 설정이 완료되었습니다.");
+						}
+						else if(strArr[0].equals("/unfixto")) {
+							whsUser = null;
+							out.println(whsUser + " 님에게 귓속말 고정 설정이 해제되었습니다.");
+						}
+						else if(strArr[0].equals("/block")) {
+							blkUser = strArr[1];
+							out.println(blkUser + " 님을 차단하였습니다.");
+							out.println(blkUser + " 님의 메시지가 수신되지 않습니다.");
+						}
+						else if(strArr[0].equals("/unblock")) {
+							blkUser = strArr[1];
+							out.println(blkUser + " 님을 차단해제하였습니다.");
+							out.println("앞으로 " + blkUser + " 님의 메시지가 수신됩니다.");
+						}
 					}
 					else {
-						sendAllMsg(name, s);
+						if (whsUser != null)
+							sendWhisperMsg(URLDecoder.decode(name, "UTF-8"),
+									URLDecoder.decode(s, "UTF-8"), whsUser);
+						else {
+							//슬러쉬가 없다면 일반 대화내용
+							sendAllMsg(name, s);
+						}
 					}
-				}
-				
-				
+				}				
+
 			}
 			catch (Exception e) {
 				System.out.println("예외:"+ e);

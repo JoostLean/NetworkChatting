@@ -29,7 +29,11 @@ public class MultiServer {
 	static ServerSocket serverSocket = null;
 	static Socket socket = null;
 	
+	MultiClient multiClient = new MultiClient();
+	
 	Map<String, PrintWriter> clientMap;
+	HashMap<String, String> whsUser = new HashMap<String, String>();
+	HashMap<String, String> blkUser = new HashMap<String, String>();
 	Set<String> blackList = new HashSet<>();
 	Set<String> pWords = new HashSet<>();
 	
@@ -77,10 +81,24 @@ public class MultiServer {
 	public void sendAllMsg(String name, String msg)
 	{
 		Iterator<String> it = clientMap.keySet().iterator();
+		String userName;
 		
 		while(it.hasNext()) {
 			try {
-				PrintWriter it_out = (PrintWriter)clientMap.get(it.next());
+				//수신자의 이름
+				userName = it.next();
+				
+				//수신자의 PrintWriter 객체
+				PrintWriter it_out = (PrintWriter)clientMap.get(userName);
+				
+				/* HashMap에 저장된 대화차단 유저를 String에 저장 후
+				해당되면 표시되지 않게 한다. 대화차단 유저가 없는 경우
+				NullPointerException이 발생하기 때문에
+				blockUsers가 null이 아닌 경우에만 if문이 실행될 수 있도록 해준다. */
+				String blockUsers = blkUser.get(userName);
+				if (blockUsers != null && blockUsers.contains(name)) {
+					continue;
+				}
 				
 				if(name.equals("")) {
 					try {
@@ -108,14 +126,27 @@ public class MultiServer {
 	public void sendWhisperMsg(String name, String msg,
 			String receiveName) {
 		Iterator<String> it = clientMap.keySet().iterator();
+		String userName;
 		
 		while(it.hasNext()) {
 			try {
+				//수신자의 이름
+				userName = it.next();
+				
 				/* HashMap에는 Key로 대화명, Value로 PrintWriter
 				인스턴스가 저장되어 있다. */
 				String clientName = it.next();
 				PrintWriter it_out =
 					(PrintWriter) clientMap.get(clientName);
+				
+				/* HashMap에 저장된 대화차단 유저를 String에 저장 후
+				해당되면 표시되지 않게 한다. 대화차단 유저가 없는 경우
+				NullPointerException이 발생하기 때문에
+				blockUsers가 null이 아닌 경우에만 if문이 실행될 수 있도록 해준다. */
+				String blockUsers = blkUser.get(userName);
+				if (blockUsers != null && blockUsers.contains(name)) {
+					continue;
+				}
 				
 				/* 해당 루프에서의 클라이언트 이름과 귓속말을 받을 사람의
 				대화명이 일치하는지 확인한다. */
@@ -144,8 +175,31 @@ public class MultiServer {
 		String id = "study";
 		String pass = "1234";
 		
-		String whsUser ="";
-		String blkUser ="";
+		//블럭처리 : 블럭요청자, 차단할사용자, 추가or삭제
+		public void fluctBlock(String user, String blockUser, char sign) {
+			if(sign=='+') {
+				if(blkUser==null) {
+					//비어있다면 그냥 삽입
+					blkUser.put(user, blockUser+"|");
+				}
+				else {
+					if(blkUser.containsKey(user)) {
+						//차단 내역이 있는경우 : 추가함
+						blkUser.put(user, blkUser.get(user)+blockUser+"|");
+					}
+					else {
+						//차단 내역이 없는경우 : 그냥삽입
+						blkUser.put(user, blockUser+"|");
+					}
+				}
+			}
+			else if(sign=='-') {
+				if(blkUser!=null && blkUser.containsKey(user)) {
+					String newblockUser = blkUser.get(user).replace(blockUser+"|", "");
+					blkUser.put(user, newblockUser);
+				}
+			}
+		}
 		
 		public MultiServerT(Socket socket) {
 			this.socket = socket;
@@ -181,14 +235,22 @@ public class MultiServer {
 				while(true) {
 					if(clientMap.containsKey(name)) {
 						out.println("동일한 이름이 존재합니다.");
+//						out.print("이름을 입력하세요:");
 						name = in.readLine();
+//						if(name==null) {
+//							break;
+//						}
 					}
 					else if(clientMap.size()>=MAX_CAPACITY) {
 						out.println(clientMap.size()+"명을 초과하여 입장하실 수 없습니다.");
+						out.println("[접속오류]실행 가능한 메뉴가 없습니다.");
+						out.println("'Q' 또는 'q'를 입력하면 종료됩니다.");
 						System.exit(0);
 					}
 					else if(blackList.contains(name)) {
 						out.println("귀하는 차단되었습니다.");
+						out.println("[접속오류]실행 가능한 메뉴가 없습니다.");
+						out.println("'Q' 또는 'q'를 입력하면 종료됩니다.");
 						System.exit(0);
 //						if (!socket.isClosed()==false) {
 //							socket.close();
@@ -202,6 +264,7 @@ public class MultiServer {
 					}
 				}
 				clientMap.put(name, out);
+				out.println("서버와 연결되었습니다...");
 				System.out.println(URLDecoder.decode(name, "UTF-8") + " 접속");
 				System.out.println("현재 접속자 수는 "+clientMap.size()+"명 입니다.");
 				
@@ -241,15 +304,42 @@ public class MultiServer {
 							psmt.close();
 						}
 					}
+					
+					if(URLDecoder.decode(s, "UTF-8").equals("/unfixto") ||
+						( URLDecoder.decode(s, "UTF-8").contains("/unfixto") &&
+						URLDecoder.decode(s, "UTF-8").charAt(0)=='/' )
+					) 
+					{
+						whsUser.remove(name);
+						out.println(whsUser.get(name) + " 님에게 귓속말 고정 설정이 해제되었습니다.");
+					}
+					else {
+						if(whsUser!=null && whsUser.containsKey(name)) {
+							s = "/to "+ whsUser.get(name) +" "+ s;
+							System.out.println("[귓속말고정]"
+									+ "(" + name + ">>" + whsUser.get(name) + ")" + " : " 
+									+ URLDecoder.decode(s, "UTF-8"));
+						}
+					}
+					
 					/*
 					귓속말형식 => /to 수신자명 대화내용 블라블라
 					*/
 					if(URLDecoder.decode(s, "UTF-8").charAt(0)=='/') {
-//						if(s.equals("/list")) {
-//							StringBuffer sb = new StringBuffer();
-//							sb.append("[접속자리스트]");
-////							while(it.hasNext()) {}
-//						}
+						if(URLDecoder.decode(s, "UTF-8").equals("/list")) {
+							//리스트 명령은 명령을 실행한 유저에게만 Echo하면 된다.
+							StringBuffer sb = new StringBuffer();
+							sb.append(URLEncoder.encode("[접속자리스트]\n", "UTF-8"));
+							//Map의 키값이 접속자 이름
+							Iterator<String> it = clientMap.keySet().iterator();
+							while(it.hasNext()) {
+								sb.append(it.next()+"\n");
+							}
+							sb.append("-----------------");
+							
+							System.out.println("["+URLDecoder.decode(name, "UTF-8")+"]님이 리스트를 출력하셨습니다.");
+							out.println(URLDecoder.decode(sb.toString(), "UTF-8"));
+						}
 						//슬러쉬로 시작하면 명령어로 판단
 						/* split() 으로 문자열을 분리한다. 여기서
 						사용하는 구분자는 스페이스 이다. */
@@ -273,33 +363,35 @@ public class MultiServer {
 							작성한다. */
 							sendWhisperMsg(name, msgContent, strArr[1]);
 						}
-						else if(strArr[0].equals("/fixto")) {
-							whsUser = strArr[1];
-							out.println(whsUser + " 님에게 귓속말 고정 설정이 완료되었습니다.");
+						else if(URLDecoder.decode(s, "UTF-8").equals("/fixto")
+								|| ( URLDecoder.decode(s, "UTF-8").contains("/fixto")
+								&& URLDecoder.decode(s, "UTF-8").charAt(0)=='/') ) {
+							whsUser.put(name, strArr[1]);							
+							out.println(strArr[1] + " 님에게 귓속말 고정 설정이 완료되었습니다.");
 						}
-						else if(strArr[0].equals("/unfixto")) {
-							whsUser = null;
-							out.println(whsUser + " 님에게 귓속말 고정 설정이 해제되었습니다.");
+						else if(URLDecoder.decode(s, "UTF-8").equals("/block")
+								|| ( URLDecoder.decode(s, "UTF-8").contains("/block")
+								&& URLDecoder.decode(s, "UTF-8").charAt(0)=='/') ) {
+							fluctBlock(name, strArr[1], '+');
+//							Set<String> blockUser = blkUser.getOrDefault(name, new HashSet<>());
+//							blockUser.add(strArr[1]);
+//							blkUser.put(name, blockUser);
+							out.println(strArr[1] + " 님을 차단하였습니다.");
+							out.println(strArr[1] + " 님의 메시지가 수신되지 않습니다.");
 						}
-						else if(strArr[0].equals("/block")) {
-							blkUser = strArr[1];
-							out.println(blkUser + " 님을 차단하였습니다.");
-							out.println(blkUser + " 님의 메시지가 수신되지 않습니다.");
-						}
-						else if(strArr[0].equals("/unblock")) {
-							blkUser = strArr[1];
-							out.println(blkUser + " 님을 차단해제하였습니다.");
-							out.println("앞으로 " + blkUser + " 님의 메시지가 수신됩니다.");
+						else if(URLDecoder.decode(s, "UTF-8").equals("/unblock")
+								|| ( URLDecoder.decode(s, "UTF-8").contains("/unblock")
+								&& URLDecoder.decode(s, "UTF-8").charAt(0)=='/') ) {
+							fluctBlock(name, strArr[1], '-');
+//							Set<String> blockUser = blkUser.get(name);
+//							blockUser.remove(strArr[1]);
+							out.println(strArr[1] + " 님을 차단해제하였습니다.");
+							out.println("앞으로 " + strArr[1] + " 님의 메시지가 수신됩니다.");
 						}
 					}
 					else {
-						if (whsUser != null)
-							sendWhisperMsg(URLDecoder.decode(name, "UTF-8"),
-									URLDecoder.decode(s, "UTF-8"), whsUser);
-						else {
-							//슬러쉬가 없다면 일반 대화내용
-							sendAllMsg(name, s);
-						}
+//						//슬러쉬가 없다면 일반 대화내용
+						sendAllMsg(name, s);
 					}
 				}				
 
